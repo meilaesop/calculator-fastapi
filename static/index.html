@@ -1,0 +1,83 @@
+<!doctype html>
+<!-- 
+  FastAPI 计算器 - 前端 HTML
+  
+  页面结构：
+  1. 头部 - 标题和副标题
+  2. 显示屏 - 显示当前表达式或结果
+  3. 按键区域 - 数字和操作符按钮
+  4. 页脚 - 显示 API 端点信息
+-->
+<html lang="en">
+
+<head>
+    <!-- 声明 HTML 文档类型和字符编码 -->
+    <meta charset="utf-8" />
+
+    <!-- 视口设置 - 响应式设计 -->
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+    <!-- 页面标题（显示在浏览器标签页） -->
+    <title>计算器</title>
+
+    <!-- 引入 CSS 样式文件 -->
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+    <!-- 主容器 - 计算器主体 -->
+    <main class="calculator">
+
+        <!-- 头部区域 -->
+        <header>
+            <!-- 计算器标题 -->
+            <h1>计算器</h1>
+            <!-- 副标题 -->
+            <p class="subtitle">现代化 UI • 由 FastAPI 驱动</p>
+        </header>
+
+        <!-- 显示屏 - 用于显示表达式或计算结果 -->
+        <!-- id="display" 用于 JavaScript 操作 DOM -->
+        <div class="display" id="display">0</div>
+
+        <!-- 按键区域 - 网格布局显示所有按钮 -->
+        <div class="keys">
+            <!-- 第一行：清空、删除、除法 -->
+            <button data-action="clear" class="wide">C</button> <!-- 清空表达式 -->
+            <button data-action="back">←</button> <!-- 删除最后一个字符 -->
+            <button data-action="op">/</button> <!-- 除法操作符 -->
+
+            <!-- 第二行：7, 8, 9, * -->
+            <button>7</button>
+            <button>8</button>
+            <button>9</button>
+            <button data-action="op">*</button> <!-- 乘法操作符 -->
+
+            <!-- 第三行：4, 5, 6, - -->
+            <button>4</button>
+            <button>5</button>
+            <button>6</button>
+            <button data-action="op">-</button> <!-- 减法操作符 -->
+
+            <!-- 第四行：1, 2, 3, + -->
+            <button>1</button>
+            <button>2</button>
+            <button>3</button>
+            <button data-action="op">+</button> <!-- 加法操作符 -->
+
+            <!-- 第五行：0, 小数点, 等号（占两列） -->
+            <button>0</button>
+            <button>.</button> <!-- 小数点 -->
+            <button data-action="equals" class="wide">=</button> <!-- 计算结果 -->
+        </div>
+
+        <!-- 页脚 - 显示 API 端点信息 -->
+        <footer class="footer">API 端点: <code>/api/calc</code></footer>
+    </main>
+
+    <!-- 引入 JavaScript 脚本文件 -->
+    <!-- 该脚本处理用户交互和 API 调用 -->
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
