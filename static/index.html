@@ -1,83 +1,87 @@
-<!doctype html>
-<!-- 
-  FastAPI 计算器 - 前端 HTML
-  
-  页面结构：
-  1. 头部 - 标题和副标题
-  2. 显示屏 - 显示当前表达式或结果
-  3. 按键区域 - 数字和操作符按钮
-  4. 页脚 - 显示 API 端点信息
--->
-<html lang="en">
-
+﻿<!doctype html>
+<html lang="zh-CN">
 <head>
-    <!-- 声明 HTML 文档类型和字符编码 -->
     <meta charset="utf-8" />
-
-    <!-- 视口设置 - 响应式设计 -->
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-
-    <!-- 页面标题（显示在浏览器标签页） -->
-    <title>计算器</title>
-
-    <!-- 引入 CSS 样式文件 -->
-    <link rel="stylesheet" href="/static/style.css" />
+    <meta name="description" content="一款使用 FastAPI 和原生 JavaScript 构建的网页科学计算器，支持常用数学函数与 DEG/RAD 角度模式。" />
+    <meta name="theme-color" content="#07111f" />
+    <title>科学计算器 | Calculator Lab</title>
+    <link rel="stylesheet" href="/static/style.css?v=12" />
 </head>
-
 <body>
-    <!-- 主容器 - 计算器主体 -->
     <main class="calculator">
-
-        <!-- 头部区域 -->
-        <header>
-            <!-- 计算器标题 -->
-            <h1>计算器</h1>
-            <!-- 副标题 -->
-            <p class="subtitle">现代化 UI • 由 FastAPI 驱动</p>
+        <header class="topbar">
+            <div>
+                <span class="brand-tag">CALCULATOR LAB</span>
+                <h1>科学计算器</h1>
+                <p class="subtitle">为日常计算与数学学习打造 · 支持键盘输入</p>
+                <p class="tech-stack">前端：HTML/CSS/JavaScript · 后端：FastAPI</p>
+            </div>
+            <button type="button" id="mode-toggle" class="mode-toggle" data-action="toggle-mode" data-help="切换角度制 DEG 与弧度制 RAD" aria-label="角度模式：DEG，点击切换">DEG</button>
         </header>
 
-        <!-- 显示屏 - 用于显示表达式或计算结果 -->
-        <!-- id="display" 用于 JavaScript 操作 DOM -->
-        <div class="display" id="display">0</div>
-
-        <!-- 按键区域 - 网格布局显示所有按钮 -->
-        <div class="keys">
-            <!-- 第一行：清空、删除、除法 -->
-            <button data-action="clear" class="wide">C</button> <!-- 清空表达式 -->
-            <button data-action="back">←</button> <!-- 删除最后一个字符 -->
-            <button data-action="op">/</button> <!-- 除法操作符 -->
-
-            <!-- 第二行：7, 8, 9, * -->
-            <button>7</button>
-            <button>8</button>
-            <button>9</button>
-            <button data-action="op">*</button> <!-- 乘法操作符 -->
-
-            <!-- 第三行：4, 5, 6, - -->
-            <button>4</button>
-            <button>5</button>
-            <button>6</button>
-            <button data-action="op">-</button> <!-- 减法操作符 -->
-
-            <!-- 第四行：1, 2, 3, + -->
-            <button>1</button>
-            <button>2</button>
-            <button>3</button>
-            <button data-action="op">+</button> <!-- 加法操作符 -->
-
-            <!-- 第五行：0, 小数点, 等号（占两列） -->
-            <button>0</button>
-            <button>.</button> <!-- 小数点 -->
-            <button data-action="equals" class="wide">=</button> <!-- 计算结果 -->
+        <div class="display-wrap">
+            <div id="expression" class="expression" aria-live="polite"></div>
+            <output id="display" class="display" aria-live="polite">0</output>
         </div>
 
-        <!-- 页脚 - 显示 API 端点信息 -->
-        <footer class="footer">API 端点: <code>/api/calc</code></footer>
+        <div class="keys" aria-label="科学计算器按键">
+            <button type="button" data-action="clear" data-help="清空当前表达式">C</button>
+            <button type="button" data-action="delete" data-help="删除最后输入的内容">DEL</button>
+            <button type="button" data-action="func" data-value="(" data-help="开始括号内的计算" aria-label="左括号">(</button>
+            <button type="button" data-action="func" data-value=")" data-help="结束括号内的计算" aria-label="右括号">)</button>
+
+            <button type="button" data-action="func" data-value="sin(" data-help="正弦函数，按当前角度模式计算">sin</button>
+            <button type="button" data-action="func" data-value="cos(" data-help="余弦函数，按当前角度模式计算">cos</button>
+            <button type="button" data-action="func" data-value="tan(" data-help="正切函数，按当前角度模式计算">tan</button>
+            <button type="button" data-action="op" data-value="^" data-help="乘方，例如 2^3 = 8">^</button>
+
+            <button type="button" data-action="func" data-value="asin(" data-help="反正弦函数，由正弦值求角度">sin⁻¹</button>
+            <button type="button" data-action="func" data-value="acos(" data-help="反余弦函数，由余弦值求角度">cos⁻¹</button>
+            <button type="button" data-action="func" data-value="atan(" data-help="反正切函数，由正切值求角度">tan⁻¹</button>
+            <button type="button" data-action="func" data-value="sqrt(" data-help="平方根，例如 √9 = 3">√</button>
+
+            <button type="button" data-action="func" data-value="log(" data-help="常用对数，底数为 10">log</button>
+            <button type="button" data-action="func" data-value="ln(" data-help="自然对数，底数为 e">ln</button>
+            <button type="button" data-action="func" data-value="exp(" data-help="计算 e 的 x 次方">exp</button>
+            <button type="button" data-action="func" data-value="abs(" data-help="绝对值，结果非负">|x|</button>
+
+            <button type="button" data-action="func" data-value="π" data-help="圆周率，约等于 3.14159">π</button>
+            <button type="button" data-action="func" data-value="e" data-help="自然常数，约等于 2.71828">e</button>
+            <button type="button" data-action="func" data-value="ans" data-help="引用上一次计算结果">Ans</button>
+            <button type="button" data-action="percent" data-help="百分数，当前数值除以 100">%</button>
+
+            <button type="button" data-action="square" data-help="平方，将当前数乘以自身">x²</button>
+            <button type="button" data-action="factorial" data-help="阶乘，仅支持 0 到 69 的整数">n!</button>
+            <button type="button" data-action="reciprocal" data-help="倒数，即 1 除以当前数">1/x</button>
+            <button type="button" data-action="op" data-value="/">/</button>
+
+            <button type="button" data-action="digit" data-value="7">7</button>
+            <button type="button" data-action="digit" data-value="8">8</button>
+            <button type="button" data-action="digit" data-value="9">9</button>
+            <button type="button" data-action="op" data-value="*">*</button>
+
+            <button type="button" data-action="digit" data-value="4">4</button>
+            <button type="button" data-action="digit" data-value="5">5</button>
+            <button type="button" data-action="digit" data-value="6">6</button>
+            <button type="button" data-action="op" data-value="-">−</button>
+
+            <button type="button" data-action="digit" data-value="1">1</button>
+            <button type="button" data-action="digit" data-value="2">2</button>
+            <button type="button" data-action="digit" data-value="3">3</button>
+            <button type="button" data-action="op" data-value="+">+</button>
+
+            <button type="button" data-action="digit" data-value="0">0</button>
+            <button type="button" data-action="digit" data-value=".">.</button>
+            <button type="button" data-action="negate" data-help="切换当前数值的正负号">±</button>
+            <button type="button" data-action="equals" class="equals">=</button>
+        </div>
+        <aside id="key-help" class="key-help" role="tooltip" aria-hidden="true">
+            <span class="key-help-label">按键说明</span>
+            <p id="key-help-text"></p>
+        </aside>
     </main>
 
-    <!-- 引入 JavaScript 脚本文件 -->
-    <!-- 该脚本处理用户交互和 API 调用 -->
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=11"></script>
 </body>
-
 </html>

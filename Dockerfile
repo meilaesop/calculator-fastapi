@@ -17,5 +17,4 @@ COPY . .
 EXPOSE 8000
 
 # 7. 容器启动时默认执行的命令，运行 uvicorn 服务器
-CMD ["uvicorn", "calculator:app", "--host", "0.0.0.0", "--port", "0.0.0.0"]
-
+CMD ["uvicorn", "calculator:app", "--host", "0.0.0.0", "--port", "8000"]

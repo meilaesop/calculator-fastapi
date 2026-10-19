@@ -1,196 +1,224 @@
-/**
- * FastAPI 计算器 - 前端 JavaScript
- * 
- * 功能：
- * 1. 管理计算器显示屏
- * 2. 处理用户按钮点击事件
- * 3. 支持键盘输入
- * 4. 通过 API 调用后端计算表达式
- */
-
-// ===== IIFE 模式 - 立即执行函数表达式 =====
-// 目的：创建独立的作用域，避免全局变量污染
 (() => {
-    // ===== 获取 DOM 元素 =====
-    // 获取显示屏元素，用于显示表达式和计算结果
+    const expressionDisplay = document.getElementById('expression')
     const display = document.getElementById('display')
+    const modeToggle = document.getElementById('mode-toggle')
+    const keyHelp = document.getElementById('key-help')
+    const keyHelpText = document.getElementById('key-help-text')
 
-    // ===== 状态变量 =====
-    // 当前表达式字符串，例如 "3+5" 或 "10*2"
-    let expr = ''
+    let expression = ''
+    let lastResult = 0
+    let angleMode = 'DEG'
+    let justEvaluated = false
+    let calculationId = 0
+    const supportedNames = [
+        'sin', 'cos', 'tan', 'asin', 'acos', 'atan',
+        'sqrt', 'log', 'ln', 'exp', 'abs', 'pi', 'e', 'ans',
+    ]
 
-    // ===== 渲染函数 =====
-    /**
-     * 更新显示屏内容
-     * 
-     * 功能：将当前表达式更新到 HTML 中
-     * 如果表达式为空，显示 '0'
-     */
-    function render() {
-        display.textContent = expr || '0'
+    function render(result = null) {
+        const displayValue = result === null ? (expression ? '' : '0') : String(result)
+        expressionDisplay.textContent = expression
+        display.textContent = displayValue
+        expressionDisplay.setAttribute('aria-label', expression)
+        display.setAttribute('aria-label', displayValue)
+        modeToggle.textContent = angleMode
+        modeToggle.setAttribute('aria-label', `角度模式：${angleMode}，点击切换`)
     }
 
-    // ===== 计算函数 =====
-    /**
-     * 发送表达式到后端进行计算
-     * 
-     * 参数:
-     *   expression (string): 要计算的数学表达式
-     * 
-     * 过程：
-     *   1. 验证表达式不为空或不完整
-     *   2. 发送 POST 请求到 /api/calc
-     *   3. 接收 JSON 响应，提取结果
-     *   4. 更新显示屏
-     *   5. 捕获错误并显示错误信息
-     */
-    async function compute(expression) {
+    function showInputError(message) {
+        display.textContent = message
+        display.setAttribute('aria-label', message)
+    }
+
+    function showKeyHelp(button) {
+        keyHelpText.textContent = button.dataset.help
+        keyHelp.classList.add('is-visible')
+        keyHelp.setAttribute('aria-hidden', 'false')
+        button.setAttribute('aria-describedby', 'key-help')
+    }
+
+    function hideKeyHelp(button) {
+        keyHelp.classList.remove('is-visible')
+        keyHelp.setAttribute('aria-hidden', 'true')
+        button.removeAttribute('aria-describedby')
+    }
+
+    function append(value, startNew = false) {
+        calculationId += 1
+        if (justEvaluated) {
+            expression = startNew ? '' : String(lastResult)
+            justEvaluated = false
+        }
+        expression += value
+        render()
+    }
+
+    function canAppendLetter(letter) {
+        const currentExpression = justEvaluated ? '' : expression
+        const candidate = `${currentExpression}${letter}`
+        const name = candidate.match(/[a-z]+$/i)?.[0].toLowerCase()
+        return name !== undefined && supportedNames.some(supportedName => supportedName.startsWith(name))
+    }
+
+    function toggleAngleMode() {
+        calculationId += 1
+        angleMode = angleMode === 'DEG' ? 'RAD' : 'DEG'
+        render()
+    }
+
+    async function calculate() {
+        if (!expression.trim()) {
+            render(0)
+            return
+        }
+
+        const requestId = ++calculationId
         try {
-            // ===== 表达式验证 =====
-
-            // 检查表达式是否为空
-            if (!expression || !expression.trim()) {
-                expr = 'Error: 空表达式'
-                render()
-                return
-            }
-
-            // 检查表达式是否以操作符结尾（不完整）
-            // 正则表达式 /[+\-*/]$/ 匹配以 +、-、*、/ 结尾的字符串
-            if (/[+\-*/]$/.test(expression.trim())) {
-                expr = 'Error: 不完整'
-                render()
-                return
-            }
-
-            // ===== 发送 API 请求 =====
-            const res = await fetch('/api/calc', {
-                method: 'POST',              // HTTP 方法
-                headers: {
-                    'Content-Type': 'application/json'  // 请求头：JSON 格式
-                },
+            const response = await fetch('/api/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    expr: expression.trim()  // 请求体：要计算的表达式
-                })
+                    expr: expression,
+                    angle_mode: angleMode,
+                    ans: lastResult,
+                }),
             })
+            const data = await response.json()
+            if (!response.ok) throw new Error(data.detail || '计算失败')
+            if (requestId !== calculationId) return
 
-            // ===== 解析响应 =====
-            const data = await res.json()    // 解析 JSON 响应
-
-            // 检查响应状态是否成功
-            if (!res.ok) throw data          // 如果失败，抛出错误
-
-            // ===== 更新表达式和显示屏 =====
-            expr = String(data.result)      // 将结果转换为字符串并保存
-            render()                         // 更新显示屏
-
-        } catch (err) {
-            // ===== 错误处理 =====
-            console.error('计算错误:', err)  // 在控制台打印错误（便于调试）
-            expr = 'Error'                  // 显示错误提示
-            render()
+            lastResult = data.result
+            justEvaluated = true
+            render(data.formatted)
+        } catch (error) {
+            if (requestId !== calculationId) return
+            const errorMessages = {
+                'float division by zero': '除数不能为零',
+                'math domain error': '函数输入超出定义范围',
+                'math range error': '函数计算结果超出允许范围',
+                'must be real number, not complex': '负数不能进行非整数次幂运算',
+                'int too large to convert to float': '计算结果超出允许范围',
+            }
+            let message = errorMessages[error.message] || error.message
+            if (error.message === '计算结果超出允许范围' && /!\s*$/.test(expression)) {
+                message = '阶乘结果超出允许范围（最大支持 69!）'
+            } else if (/^不支持的函数或常数：[!^%*/]+$/.test(message)) {
+                message = '运算符位置错误'
+            }
+            display.textContent = message
+            display.setAttribute('aria-label', message)
         }
     }
 
-    // ===== 按钮点击事件监听 =====
-    /**
-     * 为所有按钮添加点击事件监听
-     * 根据按钮的 data-action 属性执行不同的操作
-     */
-    document.querySelectorAll('.keys button').forEach(btn => {
-        btn.addEventListener('click', e => {
-            // 获取按钮的 data-action 属性（如果有）
-            const action = btn.dataset.action
+    document.querySelectorAll('.keys button').forEach(button => {
+        if (button.dataset.help) {
+            button.addEventListener('mouseenter', () => showKeyHelp(button))
+            button.addEventListener('mouseleave', () => hideKeyHelp(button))
+            button.addEventListener('focus', () => showKeyHelp(button))
+            button.addEventListener('blur', () => hideKeyHelp(button))
+        }
 
-            // 获取按钮的文本内容（数字或符号）
-            const val = btn.textContent
+        button.addEventListener('click', () => {
+            const action = button.dataset.action
+            const value = button.dataset.value
 
-            // ===== 根据不同操作执行逻辑 =====
             if (action === 'clear') {
-                // 清空：清除表达式
-                expr = ''
-
-            } else if (action === 'back') {
-                // 删除：移除最后一个字符
-                expr = expr.slice(0, -1)
-
+                calculationId += 1
+                expression = ''
+                justEvaluated = false
+                render()
+            } else if (action === 'delete') {
+                calculationId += 1
+                expression = expression.slice(0, -1)
+                justEvaluated = false
+                render()
+            } else if (action === 'toggle-mode') {
+                toggleAngleMode()
             } else if (action === 'equals') {
-                // 等号：计算表达式
-                if (expr) compute(expr)
-
-            } else if (action === 'op') {
-                // 操作符：追加操作符到表达式
-                expr += val
-
-            } else {
-                // 数字和小数点：追加到表达式
-                expr += val
+                calculate()
+            } else if (action === 'negate') {
+                calculationId += 1
+                expression = justEvaluated ? `-(${lastResult})` : expression ? `-(${expression})` : '-'
+                justEvaluated = false
+                render()
+            } else if (action === 'reciprocal') {
+                calculationId += 1
+                expression = justEvaluated ? `1/(${lastResult})` : expression ? `1/(${expression})` : '1/('
+                justEvaluated = false
+                render()
+            } else if (action === 'percent') {
+                calculationId += 1
+                expression = justEvaluated ? `(${lastResult})/100` : expression ? `(${expression})/100` : ''
+                justEvaluated = false
+                render()
+            } else if (action === 'square') {
+                calculationId += 1
+                expression = justEvaluated ? `(${lastResult})^2` : expression ? `(${expression})^2` : ''
+                justEvaluated = false
+                render()
+            } else if (action === 'factorial') {
+                calculationId += 1
+                if (justEvaluated) expression = String(lastResult)
+                justEvaluated = false
+                append('!')
+            } else if (value) {
+                if (justEvaluated && action === 'func' && /^[a-z]+\($/i.test(value)) {
+                    calculationId += 1
+                    expression = `${value}${lastResult})`
+                    justEvaluated = false
+                    render()
+                } else {
+                    append(value, action === 'digit' || (action === 'func' && value !== ')'))
+                }
             }
-
-            // 更新显示屏
-            render()
         })
     })
 
-    // ===== 键盘支持 =====
-    /**
-     * 添加键盘事件监听，支持键盘输入
-     * 用户可以直接用键盘输入数字和操作符
-     */
-    window.addEventListener('keydown', e => {
-        // ===== 数字和操作符键 =====
-        // 正则表达式 /^[0-9+\-*/().]$/ 匹配数字、操作符和小数点
-        if ((/^[0-9+\-*/().]$/).test(e.key)) {
-            expr += e.key       // 追加到表达式
-            render()
+    modeToggle.addEventListener('mouseenter', () => showKeyHelp(modeToggle))
+    modeToggle.addEventListener('mouseleave', () => hideKeyHelp(modeToggle))
+    modeToggle.addEventListener('focus', () => showKeyHelp(modeToggle))
+    modeToggle.addEventListener('blur', () => hideKeyHelp(modeToggle))
+    modeToggle.addEventListener('click', toggleAngleMode)
 
-            // ===== 回车键 - 计算结果 =====
-        } else if (e.key === 'Enter') {
-            if (expr) compute(expr)
-
-            // ===== 退格键 - 删除最后一个字符 =====
-        } else if (e.key === 'Backspace') {
-            expr = expr.slice(0, -1)
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === '=') {
+            event.preventDefault()
+            if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur()
+            }
+            calculate()
+        } else if (event.key === 'Backspace') {
+            calculationId += 1
+            expression = expression.slice(0, -1)
+            justEvaluated = false
             render()
-
-            // ===== ESC 键 - 清空表达式 =====
-        } else if (e.key === 'Escape') {
-            expr = ''
+        } else if (event.key === 'Escape') {
+            calculationId += 1
+            expression = ''
+            justEvaluated = false
             render()
+        } else if (
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            event.key.length === 1
+        ) {
+            const isLetter = /^[a-z]$/i.test(event.key)
+            if (
+                /^[0-9π.()+\-*/%^!]$/u.test(event.key) ||
+                (isLetter && canAppendLetter(event.key))
+            ) {
+                append(event.key, /^[0-9.a-zA-Zπ]$/u.test(event.key))
+            } else {
+                event.preventDefault()
+                showInputError(
+                    isLetter
+                        ? `不支持的函数或常数名称：${event.key}`
+                        : `不支持输入字符：${event.key}`,
+                )
+            }
         }
-    })
+    }, true)
 
-    // ===== 初始化 =====
-    // 页面加载时，初始化显示屏
     render()
 })()
-
-/* 
-   ===== 使用说明 =====
-   
-   1. 鼠标输入：点击按钮输入数字和操作符，按"="计算
-   
-   2. 键盘输入：
-      - 数字/操作符：直接按键盘输入
-      - 计算：按 Enter
-      - 删除：按 Backspace
-      - 清空：按 Escape
-   
-   3. 特殊按钮：
-      - C：清空所有输入
-      - ←：删除最后一个字符
-      - =：计算表达式
-   
-   4. 支持的操作：
-      - 加法 (+)
-      - 减法 (-)
-      - 乘法 (*)
-      - 除法 (/)
-      - 取模 (%)
-      - 乘方 (**)
-   
-   5. 错误处理：
-      - 空表达式：显示 "Error: 空表达式"
-      - 不完整表达式：显示 "Error: 不完整"
-      - 其他错误：显示 "Error"
-*/

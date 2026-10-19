@@ -1,211 +1,259 @@
 #!/usr/bin/env python3
-"""
-FastAPI 计算器应用
+"""FastAPI 科学计算器：页面服务与安全表达式计算 API。"""
 
-功能：
-1. 提供现代化计算器 UI
-2. 安全地评估数学表达式
-3. 通过 RESTful API 返回计算结果
-
-作者: Calculator App
-"""
+import math
+import os
+import re
+from pathlib import Path
+from typing import Literal, Union
 
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-import ast
-import operator as op
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-# =============== 应用初始化 ===============
-# 创建 FastAPI 应用实例
-app = FastAPI(title="Calculator App")
+BASE_DIR = Path(__file__).resolve().parent
+MAX_EXPRESSION_LENGTH = 256
+MAX_TOKENS = 100
+MAX_NESTING = 32
 
-# 挂载静态文件目录，允许直接访问 HTML/CSS/JS
-# URL 路径 /static 映射到本地 static/ 文件夹
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app = FastAPI(title="Scientific Calculator")
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
-# =============== 路由定义 ===============
+class CalculationRequest(BaseModel):
+    expr: str = Field(min_length=1, max_length=MAX_EXPRESSION_LENGTH)
+    angle_mode: Literal["DEG", "RAD"] = "DEG"
+    ans: float = Field(default=0, ge=-1e100, le=1e100, allow_inf_nan=False)
+
+
+class ExpressionParser:
+    """解析只包含白名单运算符、常数和数学函数的表达式。"""
+
+    _token_pattern = re.compile(
+        r"\s*((?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[A-Za-z]+|π|\*\*|[()+\-*/%^!])"
+    )
+    _functions = {
+        "sin": math.sin,
+        "cos": math.cos,
+        "tan": math.tan,
+        "asin": math.asin,
+        "acos": math.acos,
+        "atan": math.atan,
+        "sqrt": math.sqrt,
+        "log": math.log10,
+        "ln": math.log,
+        "exp": math.exp,
+        "abs": abs,
+    }
+
+    def __init__(self, expression: str, angle_mode: Literal["DEG", "RAD"], ans: float) -> None:
+        if not expression.strip():
+            raise ValueError("表达式不能为空")
+        if len(expression) > MAX_EXPRESSION_LENGTH:
+            raise ValueError(f"表达式不能超过 {MAX_EXPRESSION_LENGTH} 个字符")
+
+        self.angle_mode = angle_mode
+        self.ans = ans
+        self.tokens = self._tokenize(expression)
+        self.position = 0
+        self.nesting = 0
+
+    @classmethod
+    def _tokenize(cls, expression: str) -> list[str]:
+        tokens = []
+        position = 0
+        while position < len(expression):
+            match = cls._token_pattern.match(expression, position)
+            if match is None:
+                if expression[position:].strip() == "":
+                    break
+                raise ValueError("表达式包含不支持的字符")
+            tokens.append(match.group(1))
+            if len(tokens) > MAX_TOKENS:
+                raise ValueError("表达式过于复杂")
+            position = match.end()
+        return tokens
+
+    def _peek(self) -> str | None:
+        return self.tokens[self.position] if self.position < len(self.tokens) else None
+
+    def _take(self) -> str:
+        token = self._peek()
+        if token is None:
+            raise ValueError("表达式不完整")
+        self.position += 1
+        return token
+
+    def _parse_expression(self) -> float:
+        value = self._parse_term()
+        while self._peek() in ("+", "-"):
+            operator = self._take()
+            right = self._parse_term()
+            value = value + right if operator == "+" else value - right
+        return value
+
+    def _starts_primary(self, token: str | None) -> bool:
+        return token is not None and (token[0].isdigit() or token[0].isalpha() or token[0] in "π(")
+
+    def _parse_term(self) -> float:
+        value = self._parse_unary()
+        while self._peek() in ("*", "/", "%") or self._starts_primary(self._peek()):
+            token = self._peek()
+            operator = self._take() if token in ("*", "/", "%") else "*"
+            right = self._parse_unary()
+            if operator == "/":
+                if right == 0:
+                    raise ValueError("除数不能为零")
+                value /= right
+            elif operator == "%":
+                if right == 0:
+                    raise ValueError("取模数不能为零")
+                value %= right
+            else:
+                value *= right
+            self._check_finite(value)
+        return value
+
+    def _parse_unary(self) -> float:
+        if self._peek() == "+":
+            self._take()
+            return self._parse_unary()
+        if self._peek() == "-":
+            self._take()
+            return -self._parse_unary()
+        return self._parse_power()
+
+    def _parse_power(self) -> float:
+        base = self._parse_postfix()
+        if self._peek() in ("^", "**"):
+            self._take()
+            exponent = self._parse_unary()
+            if abs(exponent) > 100:
+                raise ValueError("指数绝对值不能超过 100")
+            if base == 0 and exponent < 0:
+                raise ValueError("零不能进行负数次幂运算")
+            if base < 0 and not exponent.is_integer():
+                raise ValueError("负数不能进行非整数次幂运算")
+            try:
+                base = base ** exponent
+            except OverflowError as error:
+                raise ValueError("幂运算结果超出允许范围") from error
+        self._check_finite(base)
+        return base
+
+    def _parse_postfix(self) -> float:
+        value = self._parse_primary()
+        while self._peek() == "!":
+            self._take()
+            if not value.is_integer() or value < 0:
+                raise ValueError("阶乘仅支持非负整数")
+            if value > 69:
+                raise ValueError("阶乘结果超出允许范围（最大支持 69!）")
+            value = float(math.factorial(int(value)))
+        return value
+
+    def _parse_primary(self) -> float:
+        token = self._take()
+        if token == ")":
+            raise ValueError("右括号位置错误")
+        if token in ("!", "^", "**", "%", "*", "/"):
+            raise ValueError("运算符位置错误")
+        if token == "(":
+            self.nesting += 1
+            if self.nesting > MAX_NESTING:
+                raise ValueError("表达式嵌套过深")
+            try:
+                value = self._parse_expression()
+                if self._take() != ")":
+                    raise ValueError("括号不匹配")
+                return value
+            finally:
+                self.nesting -= 1
+
+        if token[0].isdigit() or token[0] == ".":
+            return self._check_finite(float(token))
+
+        name = token.lower()
+        if name in ("π", "pi"):
+            return math.pi
+        if name == "e":
+            return math.e
+        if name == "ans":
+            return self.ans
+
+        function = self._functions.get(name)
+        if function is None:
+            raise ValueError(f"不支持的函数或常数：{token}")
+        self.nesting += 1
+        if self.nesting > MAX_NESTING:
+            raise ValueError("表达式嵌套过深")
+        try:
+            if self._take() != "(":
+                raise ValueError(f"{name} 函数需要括号")
+            argument = self._parse_expression()
+            if self._take() != ")":
+                raise ValueError("括号不匹配")
+        finally:
+            self.nesting -= 1
+
+        if name in ("sin", "cos", "tan") and self.angle_mode == "DEG":
+            argument = math.radians(argument)
+        if name == "sqrt" and argument < 0:
+            raise ValueError("平方根的被开方数不能小于零")
+        if name in ("log", "ln") and argument <= 0:
+            raise ValueError("对数的真数必须大于零")
+        if name in ("asin", "acos") and not -1 <= argument <= 1:
+            raise ValueError("反三角函数的输入必须在 -1 到 1 之间")
+        try:
+            result = function(argument)
+        except OverflowError as error:
+            raise ValueError("函数计算结果超出允许范围") from error
+        if name in ("asin", "acos", "atan") and self.angle_mode == "DEG":
+            result = math.degrees(result)
+        return self._check_finite(result)
+
+    @staticmethod
+    def _check_finite(value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("结果无效，请检查输入范围")
+        if abs(value) > 1e100:
+            raise ValueError("计算结果超出允许范围")
+        return value
+
+    def parse(self) -> float:
+        result = self._parse_expression()
+        if self.position != len(self.tokens):
+            raise ValueError("表达式格式错误")
+        return self._check_finite(result)
+
+
 @app.get("/")
-async def index():
-	"""
-	主页路由 - 返回计算器 HTML
-	当用户访问 http://127.0.0.1:8000/ 时调用
-	"""
-	return FileResponse("static/index.html")
+async def index() -> FileResponse:
+    """返回科学计算器页面。"""
+    return FileResponse(BASE_DIR / "static" / "index.html")
 
 
-# =============== 数据模型 ===============
-class CalcRequest(BaseModel):
-	"""POST /api/calc 请求的数据模型"""
-	expr: str  # 数学表达式字符串，如 "3+5*2"
+@app.post("/api/calculate")
+async def calculate(request: CalculationRequest) -> dict[str, Union[float, str]]:
+    """计算经过限制的数学表达式，并返回结果及格式化值。"""
+    try:
+        parser = ExpressionParser(request.expr, request.angle_mode, request.ans)
+        result = parser.parse()
+    except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, RecursionError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {
+        "result": result,
+        "formatted": f"{result:.12g}",
+    }
 
 
-# =============== 允许的操作符 ===============
-# 定义允许使用的操作符映射
-# 将 AST 节点类型映射到对应的 Python 操作函数
-# 这样做是为了安全考虑，只允许基本数学操作
-_ALLOWED_OPS = {
-	ast.Add: op.add,      # 加法 (+)
-	ast.Sub: op.sub,      # 减法 (-)
-	ast.Mult: op.mul,     # 乘法 (*)
-	ast.Div: op.truediv,  # 除法 (/)
-	ast.Pow: op.pow,      # 幂运算 (**)
-	ast.Mod: op.mod,      # 取模 (%)
-	ast.USub: op.neg,     # 一元负号 (-)
-}
-
-
-# =============== 表达式计算函数 ===============
-def _eval_expr(expr: str):
-	"""
-	安全地评估数学表达式
-
-	原理：
-	1. 使用 Python 的 AST（抽象语法树）模块解析表达式
-	2. 递归遍历 AST，只允许特定的操作（加减乘除等）
-	3. 不允许任意代码执行，防止注入攻击
-
-	参数:
-		expr (str): 数学表达式字符串
-					示例: "2+3*4", "10/2-1", "(5+3)*2"
-
-	返回:
-		int | float: 计算结果
-
-	异常:
-		ValueError: 
-			- 表达式包含不允许的操作
-			- 表达式语法错误
-			- 包含不支持的表达式类型
-	"""
-	# 将字符串解析成 AST（抽象语法树）
-	# mode="eval" 表示解析为表达式（而不是语句）
-	node = ast.parse(expr, mode="eval")
-
-	def _eval(n):
-		"""
-		递归函数：评估 AST 节点
-
-		参数:
-			n: AST 节点
-
-		返回:
-			该节点代表的值
-		"""
-
-		# 情况 1: 常数节点（数字字面量）
-		# 例如: 3, 3.14, 100
-		if isinstance(n, ast.Constant):
-			# 只允许整数和浮点数
-			if isinstance(n.value, (int, float)):
-				return n.value
-			raise ValueError("不支持的常数类型")
-
-		# 情况 2: 二元操作节点
-		# 例如: 3+5, 10*2, 6-4 等
-		if isinstance(n, ast.BinOp):
-			# 递归计算左操作数
-			left = _eval(n.left)
-			# 递归计算右操作数
-			right = _eval(n.right)
-			# 根据操作符类型获取对应的函数
-			op_func = _ALLOWED_OPS.get(type(n.op))
-			# 检查操作符是否被允许
-			if op_func is None:
-				raise ValueError("不支持的操作符")
-			# 执行操作并返回结果
-			return op_func(left, right)
-
-		# 情况 3: 一元操作节点
-		# 例如: -5（负数）
-		if isinstance(n, ast.UnaryOp):
-			# 获取一元操作符对应的函数
-			op_func = _ALLOWED_OPS.get(type(n.op))
-			if op_func is None:
-				raise ValueError("不支持的一元操作符")
-			# 对操作数应用操作符
-			return op_func(_eval(n.operand))
-
-		# 如果是其他类型的节点，抛出错误
-		raise ValueError("不支持的表达式类型")
-
-	# 从 AST 的根节点开始计算整个表达式
-	return _eval(node.body)
-
-
-# =============== API 端点 ===============
-@app.post("/api/calc")
-async def calc_post(req: CalcRequest):
-	"""
-	POST 端点 - 计算表达式
-
-	接收 JSON 格式的请求:
-		{
-			"expr": "2+3*4"
-		}
-
-	返回 JSON 格式的结果:
-		{
-			"result": 14
-		}
-
-	HTTP 状态码:
-		200: 计算成功
-		400: 表达式无效或计算错误
-	"""
-	try:
-		# 验证表达式不为空
-		if not req.expr or not req.expr.strip():
-			raise ValueError("表达式不能为空")
-
-		# 计算表达式（去掉首尾空格）
-		result = _eval_expr(req.expr.strip())
-		# 返回计算结果
-		return {"result": result}
-
-	except Exception as e:
-		# 打印错误日志便于调试
-		print(f"计算错误 '{req.expr}': {e}")
-		# 返回 400 Bad Request 和错误信息
-		raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/api/calc")
-async def calc_get(expr: str):
-	"""
-	GET 端点 - 计算表达式
-
-	接收 URL 参数格式的请求:
-		/api/calc?expr=2+3*4
-
-	返回 JSON 格式的结果:
-		{
-			"result": 14
-		}
-
-	HTTP 状态码:
-		200: 计算成功
-		400: 表达式无效或计算错误
-	"""
-	try:
-		# 计算表达式
-		result = _eval_expr(expr)
-		return {"result": result}
-	except Exception as e:
-		# 返回错误信息
-		raise HTTPException(status_code=400, detail=str(e))
-
-
-# =============== 应用入口 ===============
 if __name__ == "__main__":
-	import uvicorn
+    import uvicorn
 
-	# 启动 Uvicorn Web 服务器
-	uvicorn.run(
-		"calculator:app",            # 模块名:应用变量名
-		host="127.0.0.1",            # 监听地址（仅本地）
-		port=8000,                   # 监听端口
-		reload=True                  # 开发模式：代码修改后自动重启
-	)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    reload = os.getenv("RELOAD", "false").lower() in {"1", "true", "yes"}
+
+    uvicorn.run("calculator:app", host=host, port=port, reload=reload)
